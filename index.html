@@ -707,12 +707,9 @@ body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(-
           <div class="mt1" style="background:#f0f7ff;border-radius:8px;padding:.75rem;font-size:.75rem;color:#1565c0;line-height:1.7">
             <b>💡 Cara kerja:</b><br>
             1. Admin isi API Key &amp; Bin ID → klik Simpan<br>
-            2. Isi Google Apps Script URL jika ingin upload otomatis ke Drive<br>
+            2. Sistem menyimpan konfigurasi ke cloud<br>
             3. Pegawai buka link aplikasi → langsung login tanpa setup apapun<br>
-            4. Klik "Salin Link Akses" → bagikan ke pegawai agar otomatis terhubung cloud<br>
-            <br>
-            <b>⚠️ Penting untuk Link Akses aman:</b><br>
-            Di <a href="https://jsonbin.io" target="_blank" style="color:#1565c0">jsonbin.io</a>, buka pengaturan Bin → aktifkan <b>Public Read</b> agar link yang dibagikan tidak mengandung API Key (lebih aman, tidak ditandai berbahaya oleh browser)
+            4. Atau bagikan "Link Akses" ke pegawai agar otomatis terhubung
           </div>
         </div>
       </div>
@@ -1001,13 +998,13 @@ function resetCloudSetup() {
   showToast('🔧 Silakan masukkan konfigurasi cloud baru');
 }
 
-// Buat link relay untuk di-share ke pegawai (hanya Bin ID, API Key diambil dari _meta cloud)
+// Buat link relay untuk di-share ke pegawai (berisi key terenkripsi)
 function copyRelayLink() {
-  if (!CLOUD.enabled) { showToast('\u26a0\ufe0f Cloud belum dikonfigurasi'); return; }
-  // Hanya embed Bin ID (bukan API Key) agar URL tidak terdeteksi sebagai berbahaya oleh Chrome
-  const url = window.location.origin + window.location.pathname + '#bin=' + CLOUD.binId;
+  if (!CLOUD.enabled) { showToast('⚠️ Cloud belum dikonfigurasi'); return; }
+  const relay = btoa(CLOUD.apiKey + '|' + CLOUD.binId);
+  const url = window.location.origin + window.location.pathname + '#cloud=' + relay;
   navigator.clipboard.writeText(url).then(()=>{
-    showToast('\u2705 Link akses berhasil disalin! Bagikan ke pegawai agar langsung terhubung cloud.');
+    showToast('✅ Link relay cloud berhasil disalin! Bagikan ke pegawai agar langsung terhubung cloud.');
   }).catch(()=>{
     prompt('Salin link berikut dan bagikan ke pegawai:', url);
   });
@@ -1084,43 +1081,8 @@ async function initDB() {
   // Nanti setelah login berhasil, relay key akan di-inject otomatis dari cloud
   const existing = LDB.get('users');
   if (!existing || existing.length === 0) {
-    // Coba ambil konfigurasi cloud dari URL hash (untuk share link admin)
+    // Coba ambil relay key dari URL hash (untuk share link admin)
     const hash = window.location.hash;
-
-    // Format BARU: #bin=BINID (aman, API Key tidak ada di URL sehingga tidak trigger peringatan Chrome)
-    if (hash && hash.startsWith('#bin=')) {
-      try {
-        const binId = hash.slice(5).trim();
-        if (binId) {
-          window.location.hash = '';
-          syncShow('🔗 Link cloud ditemukan, memuat konfigurasi...', 'loading');
-          // Baca data cloud (bin harus public read agar bisa diakses tanpa API Key)
-          // API Key diambil dari _meta yang tersimpan di dalam data cloud
-          const probeResp = await fetch('https://api.jsonbin.io/v3/b/' + binId + '/latest', {
-            headers: { 'X-Bin-Meta': 'false' }
-          });
-          if (probeResp.ok) {
-            const probeJson = await probeResp.json();
-            const probeData = probeJson.record !== undefined ? probeJson.record : probeJson;
-            if (probeData && probeData._meta && probeData._meta.cloudKey) {
-              localStorage.setItem('siap_jb_apikey', probeData._meta.cloudKey);
-              localStorage.setItem('siap_jb_binid',  binId);
-              _cloudCache = probeData;
-              LDB.set('users',    probeData.users    || []);
-              LDB.set('absensi',  probeData.absensi  || []);
-              LDB.set('izincuti', probeData.izincuti || []);
-              LDB.set('dokumen',  probeData.dokumen  || []);
-              LDB.set('_meta',    probeData._meta);
-              syncShow('✅ Data cloud dimuat via link', 'success');
-              return;
-            }
-          }
-          syncShow('⚠️ Gagal membaca cloud via link', 'error');
-        }
-      } catch(e) {}
-    }
-
-    // Format LAMA: #cloud=base64(apikey|binid) — masih didukung untuk link lama
     if (hash && hash.startsWith('#cloud=')) {
       try {
         const parts = atob(hash.slice(7)).split('|');
